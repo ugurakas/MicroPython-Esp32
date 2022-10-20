@@ -1,0 +1,81 @@
+from machine import Pin
+from machine import Timer
+from machine import UART
+
+import bluetooth
+import micropython
+from micropython import const
+import random
+import struct
+import time
+import binascii
+import json
+
+
+_IRQ_SCAN_RESULT = const(5)
+
+#from getmac import get_mac_address as gma
+#print(gma())
+
+#mac_address_esp = ubinascii.hexlify(network.WLAN().config('mac'),':').decode()
+
+
+class BLE_SCAN:
+    def __init__(self, ble):
+        self._ble = ble
+        self._ble.active(True)
+        self._ble.irq(self._irq)
+        
+        self._reset()
+        
+    def _reset(self):
+        self._name = None
+        self._addr_type = None
+        self._addr = None
+        self._scan_callback = None
+
+    def _irq(self, event, data):
+        
+        if event == _IRQ_SCAN_RESULT:
+            addr_type, addr, adv_type, rssi, adv_data = data
+            addr_hex = binascii.hexlify(bytes(addr)).decode('utf-8')
+            adv_data_hex = binascii.hexlify(bytes(adv_data)).decode('utf-8')
+            
+            if adv_data_hex[14:18] == '5ade': 
+                print('addr_type:{}, addr:{}, adv_type:{}, rssi:{}, data:{}'.format(addr_type, addr_hex, adv_type, rssi, adv_data_hex))
+                publish_msg = b'addr_type:{}, addr:{}, adv_type:{}, rssi:{}, data:{}'.format(addr_type, addr_hex, adv_type, rssi, adv_data_hex) 
+                uart.write(publish_msg[0:4])
+            
+        
+            
+    def register(self):        
+        # Nordic UART Service (NUS)
+        NUS_UUID = '6E400001-B5A3-F393-E0A9-E50E24DCCA9E'
+        RX_UUID = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E'
+        TX_UUID = '6E400003-B5A3-F393-E0A9-E50E24DCCA9E'
+            
+        BLE_NUS = bluetooth.UUID(NUS_UUID)
+        BLE_RX = (bluetooth.UUID(RX_UUID), bluetooth.FLAG_WRITE)
+        BLE_TX = (bluetooth.UUID(TX_UUID), bluetooth.FLAG_NOTIFY)
+            
+        BLE_UART = (BLE_NUS, (BLE_TX, BLE_RX,))
+        SERVICES = (BLE_UART, )
+        ((self.tx, self.rx,), ) = self.ble.gatts_register_services(SERVICES)
+        
+    def scan(self, callback=None):
+        self._addr_type = None
+        self._addr = None
+        self._scan_callback = callback
+        self._ble.gap_scan(0, 500000, 80000)
+
+
+uart = UART(1, 115200)
+uart.init(115200, bits=8, parity=None, stop=1)
+
+ble = bluetooth.BLE()
+print("running")
+
+
+scanning_ble = BLE_SCAN(ble)
+scanning_ble.scan(callback = scanning_ble._irq)
+
